@@ -1,0 +1,36 @@
+# -*- restclient -*-
+
+:v3-public = https://api.coingecko.com/api/v3
+:v3-pro = https://pro-api.coingecko.com/api/v3
+
+:v3 = :v3-public
+
+# Ping
+
+GET :v3/ping
+
+# Simple
+
+# Coins
+
+# Contract
+
+# Asset Platforms
+
+# Categories
+
+# Exchanges
+
+# Derivatives
+
+# NFTs (Beta)
+
+# Exchange Rates
+
+# Search
+
+# Trending
+
+# Global
+
+# Companies (Beta)
