@@ -142,8 +142,8 @@ keyless works if you have not already exhausted the public rate limit.
 
 ## License
 
-Copyright (c) 2023 -- 2026, Christopher Mark Gore,\\
-Soli Deo Gloria,\\
+Copyright (c) 2023 -- 2026, Christopher Mark Gore,  
+Soli Deo Gloria,  
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
