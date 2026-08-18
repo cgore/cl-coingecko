@@ -1,15 +1,13 @@
 # cl-coingecko
 
-A Common Lisp client for the [CoinGecko API](https://docs.coingecko.com).
+A Common Lisp client for the [CoinGecko API](https://docs.coingecko.com).  This
+is NOT an officially maintained library from CoinGecko itself, it is an open
+source effort wrapping their API.
 
 It covers the v3 REST surface — simple prices, coin metadata, historical
 charts and OHLC, exchanges, derivatives, treasuries, NFTs, search, global
 stats, and the onchain / GeckoTerminal endpoints.  WebSockets and webhooks
 are not wrapped.
-
-The high-level helpers are aimed at [limbic.fi](https://limbic.fi): current
-quotes and price histories for Bitcoin and friends, including USD, gold
-(`xau`), and silver (`xag`).
 
 - Docs: [docs.coingecko.com](https://docs.coingecko.com)
 - Github: [cgore/cl-coingecko](https://github.com/cgore/cl-coingecko)
