@@ -2,35 +2,106 @@
 
 :v3-public = https://api.coingecko.com/api/v3
 :v3-pro = https://pro-api.coingecko.com/api/v3
-
 :v3 = :v3-public
 
-# Ping
+# Optional.  Prefer the header form in real code.
+# :demo-key = x_cg_demo_api_key=YOUR_DEMO_KEY
+# :pro-key  = x_cg_pro_api_key=YOUR_PRO_KEY
 
+# Ping
 GET :v3/ping
 
+# API usage (Demo / Pro key required)
+# GET :v3/key
+
+################################################################################
 # Simple
 
-# Coins
+GET :v3/simple/supported_vs_currencies
 
-# Contract
+GET :v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,xag,xau&include_24hr_change=true
 
-# Asset Platforms
+# Token price by contract on Ethereum (WBTC)
+GET :v3/simple/token_price/ethereum?contract_addresses=0x2260fac5e5542a773aa44fbcfedf7c193bc2c599&vs_currencies=usd
 
-# Categories
+################################################################################
+# Coins / history — the Limbic path
 
-# Exchanges
+GET :v3/coins/list
+GET :v3/coins/markets?vs_currency=usd&ids=bitcoin,ethereum&price_change_percentage=1h,24h,7d,30d
 
-# Derivatives
+GET :v3/coins/bitcoin?tickers=false&market_data=true&community_data=false&developer_data=false
+GET :v3/coins/bitcoin/tickers
+GET :v3/coins/bitcoin/history?date=2024-01-15
 
-# NFTs (Beta)
+# Auto-granularity: 1 day = 5m, 2–90 days = hourly, 90+ = daily
+GET :v3/coins/bitcoin/market_chart?vs_currency=usd&days=1
+GET :v3/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily
+GET :v3/coins/bitcoin/market_chart/range?vs_currency=usd&from=1704067200&to=1706745600
 
-# Exchange Rates
+GET :v3/coins/bitcoin/ohlc?vs_currency=usd&days=30
+# Analyst+: GET :v3/coins/bitcoin/ohlc/range?vs_currency=usd&from=1704067200&to=1706745600&interval=daily
 
-# Search
+# Contract (WETH on Ethereum)
+GET :v3/coins/ethereum/contract/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
+GET :v3/coins/ethereum/contract/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2/market_chart?vs_currency=usd&days=30
 
-# Trending
+# Analyst+ / Enterprise
+# GET :v3/coins/list/new
+# GET :v3/coins/top_gainers_losers?vs_currency=usd&duration=24h
+# GET :v3/coins/bitcoin/supply_breakdown
+# GET :v3/coins/bitcoin/circulating_supply_chart?days=365
+# GET :v3/coins/bitcoin/total_supply_chart?days=365
 
-# Global
+################################################################################
+# Categories, platforms
 
-# Companies (Beta)
+GET :v3/coins/categories/list
+GET :v3/coins/categories
+GET :v3/asset_platforms
+GET :v3/token_lists/ethereum/all.json
+
+################################################################################
+# Exchanges / derivatives
+
+GET :v3/exchanges?per_page=10&page=1
+GET :v3/exchanges/list
+GET :v3/exchanges/binance
+GET :v3/exchanges/binance/tickers
+GET :v3/exchanges/binance/volume_chart?days=30
+
+GET :v3/derivatives
+GET :v3/derivatives/exchanges
+GET :v3/derivatives/exchanges/list
+GET :v3/derivatives/exchanges/binance_futures
+
+################################################################################
+# Treasuries, NFTs, search, global
+
+GET :v3/entities/list
+GET :v3/companies/public_treasury/bitcoin
+GET :v3/public_treasury/microstrategy
+
+GET :v3/nfts/list?per_page=10
+GET :v3/nfts/cryptopunks
+
+GET :v3/search?query=bitcoin
+GET :v3/search/trending
+GET :v3/exchange_rates
+GET :v3/global
+GET :v3/global/decentralized_finance_defi
+
+# Analyst+: GET :v3/news
+# Analyst+: GET :v3/global/market_cap_chart?days=365
+# Enterprise: GET :v3/insights
+
+################################################################################
+# Onchain / GeckoTerminal (same v3 host when keyed; keyless uses
+# https://api.geckoterminal.com/api/v2 for some of these)
+
+GET :v3/onchain/networks
+GET :v3/onchain/networks/eth/dexes
+GET :v3/onchain/networks/trending_pools
+GET :v3/onchain/networks/eth/trending_pools
+GET :v3/onchain/networks/new_pools
+GET :v3/onchain/search/pools?query=weth
