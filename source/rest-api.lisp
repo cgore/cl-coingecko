@@ -59,6 +59,20 @@
            :http-get-json-cached
            :http-get-json-do-not-cache
            :api-get
+           :http-status
+           :http-body
+           :api-error
+           :rate-limited
+           :plan-restricted
+           :api-error-status
+           :api-error-url
+           :api-error-code
+           :api-error-message
+           :api-error-timestamp
+           :api-error-body
+           :parse-error-envelope
+           :classify-error
+           :api-error-from
            :ping
            :get-key
            :get-simple-price
@@ -279,6 +293,41 @@ into an alist for QURI."
                  (if (listp ids) ids (coerce ids 'list))))
         (t (canonicalize-coin-id ids))))
 
+;;;; -- Error conditions ------------------------------------------------------
+;; CoinGecko reports failures as an HTTP error (4xx, or 429 when rate-limited)
+;; whose JSON body looks like:
+;;   {"status": {"error_code": 10005,
+;;               "error_message": "This request is limited to PRO API subscribers.",
+;;               "timestamp": "2026-08-18T03:41:11.726+00:00"}}
+;; We translate those into Lisp conditions so callers can handler-case on them
+;; instead of unwrapping dexador internals.
+
+(define-condition api-error (error)
+  ((status :initform nil :initarg :status :reader api-error-status)
+   (url :initform nil :initarg :url :reader api-error-url)
+   (error-code :initform nil :initarg :error-code :reader api-error-code)
+   (error-message :initform nil :initarg :error-message :reader api-error-message)
+   (timestamp :initform nil :initarg :timestamp :reader api-error-timestamp)
+   (body :initform nil :initarg :body :reader api-error-body))
+  (:report (lambda (condition stream)
+             (format stream "CoinGecko API error [HTTP ~A~A]: ~A (url: ~A)"
+                     (or (api-error-status condition) "?")
+                     (if (api-error-code condition)
+                         (format nil ", code ~A" (api-error-code condition))
+                         "")
+                     (or (api-error-message condition) "unknown error")
+                     (or (api-error-url condition) "?"))))
+  (:documentation "An error returned by the CoinGecko API.
+STATUS is the HTTP status code; ERROR-CODE, ERROR-MESSAGE, and TIMESTAMP come
+from the \"status\" object in the JSON response body; URL is the request URI;
+BODY is the raw response body."))
+
+(define-condition rate-limited (api-error) ()
+  (:documentation "HTTP 429 -- the request exceeded the plan's rate limit."))
+
+(define-condition plan-restricted (api-error) ()
+  (:documentation "The endpoint requires a paid (PRO/Analyst/Enterprise) plan."))
+
 (defun http-status (condition)
   (let ((fn (or (and (find-symbol "RESPONSE-STATUS" :dexador)
                      (fboundp (find-symbol "RESPONSE-STATUS" :dexador))
@@ -288,6 +337,51 @@ into an alist for QURI."
                      (symbol-function (find-symbol "RESPONSE-STATUS" :dex))))))
     (when fn
       (ignore-errors (funcall fn condition)))))
+
+(defun http-body (condition)
+  "The response body of a dexador/dex response condition, if any."
+  (let ((fn (or (and (find-symbol "RESPONSE-BODY" :dexador)
+                     (fboundp (find-symbol "RESPONSE-BODY" :dexador))
+                     (symbol-function (find-symbol "RESPONSE-BODY" :dexador)))
+                (and (find-symbol "RESPONSE-BODY" :dex)
+                     (fboundp (find-symbol "RESPONSE-BODY" :dex))
+                     (symbol-function (find-symbol "RESPONSE-BODY" :dex))))))
+    (when fn
+      (ignore-errors (funcall fn condition)))))
+
+(defun parse-error-envelope (body)
+  "Return the inner \"status\" hash from a CoinGecko error BODY, or NIL.
+BODY should be a JSON string of the form
+  {\"status\": {\"error_code\": ..., \"error_message\": ..., \"timestamp\": ...}}"
+  (when (stringp body)
+    (ignore-errors
+      (let* ((top (yason:parse body))
+             (status (when (hash-table-p top) (gethash "status" top))))
+        (when (hash-table-p status)
+          status)))))
+
+(defun classify-error (status code message)
+  "Pick the api-error subclass for an HTTP STATUS and CoinGecko error CODE/MESSAGE."
+  (cond ((= status 429) 'rate-limited)
+        ((and (integerp code) (= code 10005)) 'plan-restricted)
+        ((and message (search "PRO API subscribers" message)) 'plan-restricted)
+        (t 'api-error)))
+
+(defun api-error-from (status body url)
+  "Build the appropriate api-error condition for an HTTP STATUS and response BODY."
+  (let* ((env (parse-error-envelope body))
+         (code (and env (gethash "error_code" env)))
+         (msg (and env (gethash "error_message" env)))
+         (ts (and env (gethash "timestamp" env)))
+         (url (if (stringp url) url (format nil "~A" url))))
+    (make-instance (classify-error status code msg)
+                   :status status
+                   :url url
+                   :error-code code
+                   :error-message (or msg
+                                     (format nil "HTTP status ~A from ~A" status url))
+                   :timestamp ts
+                   :body body)))
 
 (defun http-get (url-components &key (query-args '()))
   "Make an HTTP GET call to the CoinGecko API.  Retries 429s with backoff."
@@ -308,7 +402,9 @@ into an alist for QURI."
                             (= status 429)
                             (< attempt *max-retries*))
                        (sleep (* *retry-wait-seconds* attempt))
-                       (error condition))))))))
+                       (if status
+                           (signal (api-error-from status (http-body condition) uri))
+                           (error condition)))))))))
 
 (function-cache:defcached
     (http-get-cached :timeout *api-cache-timeout-seconds*)
@@ -836,5 +932,69 @@ BTC-denominated exchange rates versus fiat, crypto, and commodities."
   (api-get (api-path "exchange_rates")
            :query nil
            :cache cache))
+
+;;;; -- Error conditions ------------------------------------------------------
+
+(defparameter *fixture-error-401*
+  "{\"status\":{\"timestamp\":\"2026-08-18T03:41:11.726+00:00\",\"error_code\":10005,\"error_message\":\"This request is limited to PRO API subscribers. Please visit https://www.coingecko.com/en/api/pricing to subscribe to our API plan to access exclusive endpoints.\"}}"
+  "A CoinGecko 401 error body, captured verbatim from a keyless GET /coins/list/new.")
+
+(behavior 'parse-error-envelope
+  (spec "401 PRO-subscribers body"
+    (let ((env (parse-error-envelope *fixture-error-401*)))
+      (should-be-a 'hash-table env)
+      (should= 10005 (gethash "error_code" env))
+      (should-string= "2026-08-18T03:41:11.726+00:00" (gethash "timestamp" env))
+      (should-be-true (search "PRO API subscribers"
+                                     (gethash "error_message" env)))))
+  (spec "non-envelope input"
+    (should-be-null (parse-error-envelope nil))
+    (should-be-null (parse-error-envelope ""))
+    (should-be-null (parse-error-envelope "not json at all"))
+    (should-be-null (parse-error-envelope "{\"other\":1}"))))
+
+(behavior 'classify-error
+  (spec "rate limiting"
+    (should-eq 'rate-limited (classify-error 429 nil nil)))
+  (spec "plan restriction"
+    (should-eq 'plan-restricted (classify-error 401 10005 nil))
+    (should-eq 'plan-restricted
+               (classify-error 401 nil
+                               "This request is limited to PRO API subscribers.")))
+  (spec "other errors"
+    (should-eq 'api-error (classify-error 404 nil "Not Found"))
+    (should-eq 'api-error (classify-error 500 nil nil))
+    (should-eq 'api-error (classify-error 401 10001 "Invalid API key"))))
+
+(behavior 'api-error-from
+  (spec "401 fixture becomes plan-restricted"
+    (let ((c (api-error-from 401 *fixture-error-401*
+                             "https://api.coingecko.com/api/v3/coins/list/new")))
+      (should-be-a 'plan-restricted c)
+      (should-be-a 'api-error c)
+      (should= 401 (api-error-status c))
+      (should= 10005 (api-error-code c))
+      (should-be-true (search "PRO API subscribers" (api-error-message c)))
+      (should-string= "2026-08-18T03:41:11.726+00:00" (api-error-timestamp c))
+      (should-string= *fixture-error-401* (api-error-body c))
+      (should-string= "https://api.coingecko.com/api/v3/coins/list/new"
+                      (api-error-url c))))
+  (spec "429 becomes rate-limited"
+    (let ((c (api-error-from 429 nil
+                             "https://api.coingecko.com/api/v3/simple/price")))
+      (should-be-a 'rate-limited c)
+      (should-be-a 'api-error c)
+      (should-be-false (typep c 'plan-restricted))
+      (should= 429 (api-error-status c))
+      (should-be-null (api-error-code c))))
+  (spec "unparseable body becomes a generic api-error"
+    (let ((c (api-error-from 404 "garbage"
+                             "https://api.coingecko.com/api/v3/coins/nope")))
+      (should-be-a 'api-error c)
+      (should-be-false (typep c 'plan-restricted))
+      (should-be-false (typep c 'rate-limited))
+      (should= 404 (api-error-status c))
+      (should-be-null (api-error-code c))
+      (should-be-true (search "404" (api-error-message c))))))
 
 (configure-from-environment)
