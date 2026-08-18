@@ -1,5 +1,7 @@
 # cl-coingecko
 
+**[View PDF Documentation](documentation/coingecko.pdf)**
+
 A Common Lisp client for the [CoinGecko API](https://docs.coingecko.com).  This
 is NOT an officially maintained library from CoinGecko itself, it is an open
 source effort wrapping their API.

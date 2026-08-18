@@ -1,0 +1,536 @@
+%%%% Copyright (C) 2023 -- 2026, Christopher Mark Gore,
+%%%% Soli Deo Gloria,
+%%%% All rights reserved.
+%%%%
+%%%% 22 Forest Glade Court, Saint Charles, Missouri 63304 USA.
+%%%% Web: http://cgore.com
+%%%% Email: cgore@cgore.com
+%%%%
+%%%% Redistribution and use in source and binary forms, with or without
+%%%% modification, are permitted provided that the following conditions are met:
+%%%%
+%%%%     * Redistributions of source code must retain the above copyright
+%%%%       notice, this list of conditions and the following disclaimer.
+%%%%
+%%%%     * Redistributions in binary form must reproduce the above copyright
+%%%%       notice, this list of conditions and the following disclaimer in the
+%%%%       documentation and/or other materials provided with the distribution.
+%%%%
+%%%%     * Neither the name of Christopher Mark Gore nor the names of other
+%%%%       contributors may be used to endorse or promote products derived from
+%%%%       this software without specific prior written permission.
+%%%%
+%%%% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+%%%% AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+%%%% IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+%%%% ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+%%%% LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+%%%% CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+%%%% SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+%%%% INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+%%%% CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+%%%% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+%%%% POSSIBILITY OF SUCH DAMAGE.
+
+\lispPackageChapter{coingecko/rest-api}
+
+The \texttt{coingecko/rest-api} package is the thin \textsc{Http} layer.
+Every documented CoinGecko v3 \texttt{GET} lives here as a function whose
+keyword arguments are the query parameters with underscores turned into
+hyphens.  Lists become comma-separated.  \texttt{t} / \texttt{:true} /
+\texttt{:false} become \texttt{true}/\texttt{false}.  Results are
+\texttt{yason} hash tables, with \textsc{Json} arrays parsed as vectors
+and booleans as symbols.
+
+Onchain / GeckoTerminal endpoints live in the same package, in
+\texttt{source/onchain.lisp}.  They are listed at the end of this chapter.
+
+\section{Variables}
+
+\lispVariableSubsection{*v3-public*}
+
+The public (Demo / keyless) \textsc{Api} root.\\
+\url{https://api.coingecko.com/api/v3}
+
+\lispVariableSubsection{*v3-pro*}
+
+The Pro \textsc{Api} root.\\
+\url{https://pro-api.coingecko.com/api/v3}
+
+\lispVariableSubsection{*api*}
+
+The host actually used for requests.  \texttt{use-keyless} and
+\texttt{use-demo} set this to \texttt{*v3-public*}; \texttt{use-pro} sets
+it to \texttt{*v3-pro*}.
+
+\lispVariableSubsection{*api-plan*}
+
+One of \texttt{:keyless}, \texttt{:demo}, or \texttt{:pro}.  This
+controls both the host and whether an \textsc{Api}-key header is sent.
+
+\lispVariableSubsection{*api-key*}
+
+The Demo or Pro key, or \texttt{nil}.  Loaded from the environment by
+\texttt{configure-from-environment} when the system is loaded.
+
+\lispVariableSubsection{*api-cache-timeout-seconds*}
+
+How long \texttt{http-get-cached} and \texttt{http-get-json-cached} keep
+a response.  The default is 60, which matches CoinGecko's public
+\texttt{/simple/price} cache.
+
+\lispVariableSubsection{*max-retries*}
+
+How many times to retry a request that comes back 429.  Default 3.
+
+\lispVariableSubsection{*retry-wait-seconds*}
+
+Base wait, in seconds, between 429 retries.  Each attempt waits
+\texttt{attempt $\times$ *retry-wait-seconds*}.  Default 2.
+
+\lispVariableSubsection{*coin-id-aliases*}
+
+An equal-hash of short tickers to CoinGecko coin ids:
+\texttt{"btc"}~$\rightarrow$~\texttt{"bitcoin"},
+\texttt{"eth"}~$\rightarrow$~\texttt{"ethereum"}, and a handful of other
+majors.  \texttt{canonicalize-coin-id} consults this table.
+
+\section{Configuration}
+
+\lispFunctionSubsection{use-keyless}
+
+Talk to the public host with no \textsc{Api}-key header.
+
+\lispSyntax
+
+\texttt{(use-keyless)}
+
+\lispReturns
+
+\texttt{:keyless}.
+
+\lispFunctionSubsection{use-demo}
+
+Talk to the public host with an \texttt{x-cg-demo-api-key} header.
+
+\lispSyntax
+
+\texttt{(use-demo \&optional \lispVar{key})}
+
+\lispArgs
+
+\begin{description}
+\item[\lispVar{key}] If supplied, stored in \texttt{*api-key*}.
+\end{description}
+
+\lispReturns
+
+\texttt{:demo}.
+
+\lispFunctionSubsection{use-pro}
+
+Talk to the Pro host with an \texttt{x-cg-pro-api-key} header.
+
+\lispSyntax
+
+\texttt{(use-pro \&optional \lispVar{key})}
+
+\lispArgs
+
+\begin{description}
+\item[\lispVar{key}] If supplied, stored in \texttt{*api-key*}.
+\end{description}
+
+\lispReturns
+
+\texttt{:pro}.
+
+\lispFunctionSubsection{configure-from-environment}
+
+Pick \texttt{:pro}, \texttt{:demo}, or \texttt{:keyless} from the
+process environment.  Called automatically when
+\texttt{source/rest-api.lisp} is loaded.
+
+\lispSyntax
+
+\texttt{(configure-from-environment)}
+
+\lispAffectedBy
+
+\texttt{COINGECKO\_PRO\_API\_KEY}, \texttt{COINGECKO\_DEMO\_API\_KEY},
+\texttt{COINGECKO\_API\_KEY}.
+
+\section{Query and Path Helpers}
+
+\lispFunctionSubsection{query-value}
+
+Turn a Lisp value into a CoinGecko query-string fragment.
+
+\lispSyntax
+
+\texttt{(query-value \lispVar{value})}
+
+\lispArgs
+
+\begin{description}
+\item[\lispVar{value}] \texttt{t} or \texttt{:true} become
+  \texttt{"true"}; \texttt{:false} becomes \texttt{"false"};
+  \texttt{nil} becomes \texttt{nil} (the pair is dropped);
+  a list or vector becomes comma-separated; a symbol is downcased; a
+  string or number is passed through.
+\end{description}
+
+\lispExamples
+
+\begin{lstlisting}
+(query-value :usd)                 ; => "usd"
+(query-value '(:btc :eth))         ; => "btc,eth"
+(query-value t)                    ; => "true"
+(query-value nil)                  ; => NIL
+\end{lstlisting}
+
+\lispFunctionSubsection{query}
+
+Build a list of \texttt{(name value)} pairs from alternating names and
+values, dropping \texttt{nil}s.  Pairs are proper lists so
+\texttt{function-cache} can hash them; \texttt{http-get} turns them into
+an alist for \texttt{quri}.
+
+\lispSyntax
+
+\texttt{(query \&rest \lispVar{pairs})}
+
+\lispExamples
+
+\begin{lstlisting}
+(query "vs_currency" :usd "days" 30 "interval" nil)
+; => (("vs_currency" "usd") ("days" "30"))
+\end{lstlisting}
+
+\lispFunctionSubsection{api-path}
+
+Join \textsc{Url} segments onto the \textsc{Api} root path.
+
+\lispSyntax
+
+\texttt{(api-path \&rest \lispVar{segments})}
+
+\lispExamples
+
+\begin{lstlisting}
+(api-path "coins" :bitcoin "market_chart")
+; => "/coins/bitcoin/market_chart"
+\end{lstlisting}
+
+\lispFunctionSubsection{canonicalize-coin-id}
+
+Downcase a coin id.  Known ticker symbols such as \texttt{:btc} map to
+CoinGecko ids via \texttt{*coin-id-aliases*}.  Unknown strings pass
+through downcased, so a real CoinGecko id such as
+\texttt{"wrapped-bitcoin"} is left alone.
+
+\lispSyntax
+
+\texttt{(canonicalize-coin-id \lispVar{id})}
+
+\lispExamples
+
+\begin{lstlisting}
+(canonicalize-coin-id :btc)              ; => "bitcoin"
+(canonicalize-coin-id "BTC")             ; => "bitcoin"
+(canonicalize-coin-id "wrapped-bitcoin") ; => "wrapped-bitcoin"
+\end{lstlisting}
+
+\lispFunctionSubsection{canonicalize-ids}
+
+Canonicalize a single coin id or a list or vector of them.
+
+\section{HTTP}
+
+\lispFunctionSubsection{http-get}
+
+Make an \textsc{Http} \texttt{GET} to the CoinGecko \textsc{Api}.  Retries
+429s with linear backoff up to \texttt{*max-retries*}.
+
+\lispSyntax
+
+\texttt{(http-get \lispVar{url-components} \&key (\lispVar{query-args} '()))}
+
+\lispArgs
+
+\begin{description}
+\item[\lispVar{url-components}] A string starting with \texttt{/}, or a
+  list of strings to concatenate after \texttt{*api*}.
+\item[\lispVar{query-args}] Query pairs as produced by \texttt{query}.
+\end{description}
+
+\lispReturns
+
+The response body as a string.
+
+\lispFunctionSubsection{http-get-json}
+
+Like \texttt{http-get}, but parse the body as \textsc{Json} with
+\texttt{yason}.  Arrays become vectors; booleans become symbols.
+
+\lispFunctionSubsection{http-get-cached}
+
+\texttt{function-cache} wrapper around \texttt{http-get}, timeout
+\texttt{*api-cache-timeout-seconds*}.
+
+\lispFunctionSubsection{http-get-json-cached}
+
+\texttt{function-cache} wrapper around \texttt{http-get-json}.
+
+\lispFunctionSubsection{http-get-json-do-not-cache}
+
+An alias for \texttt{http-get-json}, so call sites can say they mean it
+when they skip the cache.
+
+\lispFunctionSubsection{api-get}
+
+The function every endpoint wrapper calls.
+
+\lispSyntax
+
+\texttt{(api-get \lispVar{path} \&key \lispVar{query} (\lispVar{cache} t))}
+
+\lispArgs
+
+\begin{description}
+\item[\lispVar{path}] A path already rooted at \texttt{/}, as from
+  \texttt{api-path}.
+\item[\lispVar{query}] Query pairs from \texttt{query}, or \texttt{nil}.
+\item[\lispVar{cache}] When true (the default), use
+  \texttt{http-get-json-cached}; otherwise \texttt{http-get-json}.
+\end{description}
+
+\section{Prices and Histories}
+
+These are the endpoints Limbic actually needs.  Every wrapper also takes
+\texttt{\&key (cache t)} so you can bypass the sixty-second cache.
+
+\lispFunctionSubsection{ping}
+
+\texttt{GET /ping} --- check that the \textsc{Api} is up.
+
+\lispSyntax
+
+\texttt{(ping \&key (\lispVar{cache} t))}
+
+\lispReturns
+
+A hash table; the interesting key is \texttt{"gecko\_says"}.
+
+\lispFunctionSubsection{get-simple-price}
+
+\texttt{GET /simple/price} --- current prices by CoinGecko id, name, or
+symbol.  The \texttt{ids} argument is run through
+\texttt{canonicalize-ids}, so \texttt{:btc} works.
+
+\lispSyntax
+
+\texttt{(get-simple-price \&key \lispVar{vs-currencies} \lispVar{ids}
+  \lispVar{names} \lispVar{symbols} \lispVar{include-tokens}
+  \lispVar{include-market-cap} \lispVar{include-24hr-vol}
+  \lispVar{include-24hr-change} \lispVar{include-last-updated-at}
+  \lispVar{precision} (\lispVar{cache} t))}
+
+\lispExamples
+
+\begin{lstlisting}
+(get-simple-price :ids '(:btc :eth)
+                  :vs-currencies '(:usd :xag :xau)
+                  :include-24hr-change t)
+\end{lstlisting}
+
+\lispFunctionSubsection{get-token-price}
+
+\texttt{GET /simple/token\_price/\{id\}} --- prices by contract address
+on an asset platform.  Here \lispVar{id} is the platform
+(\texttt{:ethereum}), not a coin.
+
+\lispFunctionSubsection{get-supported-vs-currencies}
+
+\texttt{GET /simple/supported\_vs\_currencies} --- the legal values for
+\texttt{vs-currency} / \texttt{vs-currencies}, including \texttt{usd},
+\texttt{xag}, and \texttt{xau}.
+
+\lispFunctionSubsection{get-coin-market-chart}
+
+\texttt{GET /coins/\{id\}/market\_chart} --- historical
+\texttt{prices}, \texttt{market\_caps}, and \texttt{total\_volumes} as
+vectors of \texttt{[unix-ms, value]} pairs.
+
+\lispSyntax
+
+\texttt{(get-coin-market-chart \lispVar{id} \&key \lispVar{vs-currency}
+  \lispVar{days} \lispVar{interval} \lispVar{precision}
+  (\lispVar{cache} t))}
+
+\lispArgs
+
+\begin{description}
+\item[\lispVar{id}] A CoinGecko coin id, or a known ticker such as
+  \texttt{:btc}.
+\item[\lispVar{vs-currency}] Target currency, e.g.\ \texttt{:usd}.
+\item[\lispVar{days}] An integer or \texttt{"max"}.
+\item[\lispVar{interval}] \texttt{nil} for auto-granularity,
+  or \texttt{:daily}, \texttt{:hourly}, or \texttt{:5m}.
+\end{description}
+
+CoinGecko's auto-granularity is: 1 day from now is 5-minute points,
+2--90 days are hourly, longer is daily (00:00 \textsc{Utc}).
+
+\lispExamples
+
+\begin{lstlisting}
+(get-coin-market-chart :bitcoin :vs-currency :usd :days 365
+                       :interval :daily)
+\end{lstlisting}
+
+\lispFunctionSubsection{get-coin-market-chart-range}
+
+\texttt{GET /coins/\{id\}/market\_chart/range} --- the same series
+between UNIX \lispVar{from} and \lispVar{to}.
+
+\lispFunctionSubsection{get-coin-ohlc}
+
+\texttt{GET /coins/\{id\}/ohlc} --- candles as
+\texttt{[timestamp, open, high, low, close]}.  \lispVar{days} is one of
+1, 7, 14, 30, 90, 180, 365, or \texttt{max}.
+
+\lispFunctionSubsection{get-coin-ohlc-range}
+
+\texttt{GET /coins/\{id\}/ohlc/range}.  Analyst plan and above.
+
+\lispFunctionSubsection{get-coin-history}
+
+\texttt{GET /coins/\{id\}/history} --- a snapshot at 00:00 \textsc{Utc}
+on \lispVar{date}.  CoinGecko wants \texttt{YYYY-MM-DD}.
+
+\lispFunctionSubsection{get-coins-markets}
+
+\texttt{GET /coins/markets} --- a page of coins with price, market cap,
+volume, and related market data.  \texttt{ids} is canonicalized.
+
+\lispFunctionSubsection{get-coin}
+
+\texttt{GET /coins/\{id\}} --- metadata and market data for one coin.
+
+\lispFunctionSubsection{get-coins-list}
+
+\texttt{GET /coins/list} --- every supported coin's id, name, and symbol.
+
+\section{The Rest of the Surface}
+
+The remaining wrappers follow the same pattern: path parameters are
+required arguments, query parameters are keywords, and
+\texttt{:cache} defaults to true (\texttt{get-key} defaults to false).
+Analyst- and Enterprise-only routes are still defined; CoinGecko will
+reject them if your plan does not include them.
+
+\small
+\begin{longtable}{p{0.42\textwidth}p{0.52\textwidth}}
+\toprule
+Function & Path \\
+\midrule
+\endhead
+\texttt{get-key} & \texttt{/key} \\
+\texttt{get-coins-list-new} & \texttt{/coins/list/new} \\
+\texttt{get-coin-tickers} & \texttt{/coins/\{id\}/tickers} \\
+\texttt{get-coin-by-contract} & \texttt{/coins/\{id\}/contract/\{contract\_address\}} \\
+\texttt{get-coin-market-chart-by-contract} & \texttt{\ldots/contract/\ldots/market\_chart} \\
+\texttt{get-coin-market-chart-range-by-contract} & \texttt{\ldots/contract/\ldots/market\_chart/range} \\
+\texttt{get-coin-circulating-supply-chart} & \texttt{/coins/\{id\}/circulating\_supply\_chart} \\
+\texttt{get-coin-circulating-supply-chart-range} & \texttt{\ldots/circulating\_supply\_chart/range} \\
+\texttt{get-coin-total-supply-chart} & \texttt{/coins/\{id\}/total\_supply\_chart} \\
+\texttt{get-coin-total-supply-chart-range} & \texttt{\ldots/total\_supply\_chart/range} \\
+\texttt{get-coin-supply-breakdown} & \texttt{/coins/\{id\}/supply\_breakdown} \\
+\texttt{get-top-gainers-losers} & \texttt{/coins/top\_gainers\_losers} \\
+\texttt{get-coins-categories-list} & \texttt{/coins/categories/list} \\
+\texttt{get-coins-categories} & \texttt{/coins/categories} \\
+\texttt{get-asset-platforms} & \texttt{/asset\_platforms} \\
+\texttt{get-token-list} & \texttt{/token\_lists/\{asset\_platform\_id\}/all.json} \\
+\texttt{get-exchanges} & \texttt{/exchanges} \\
+\texttt{get-exchanges-list} & \texttt{/exchanges/list} \\
+\texttt{get-exchange} & \texttt{/exchanges/\{id\}} \\
+\texttt{get-exchange-tickers} & \texttt{/exchanges/\{id\}/tickers} \\
+\texttt{get-exchange-volume-chart} & \texttt{/exchanges/\{id\}/volume\_chart} \\
+\texttt{get-exchange-volume-chart-range} & \texttt{\ldots/volume\_chart/range} \\
+\texttt{get-derivatives} & \texttt{/derivatives} \\
+\texttt{get-derivatives-exchanges} & \texttt{/derivatives/exchanges} \\
+\texttt{get-derivatives-exchange} & \texttt{/derivatives/exchanges/\{id\}} \\
+\texttt{get-derivatives-exchanges-list} & \texttt{/derivatives/exchanges/list} \\
+\texttt{get-entities-list} & \texttt{/entities/list} \\
+\texttt{get-public-treasury-by-coin} & \texttt{/\{entity\}/public\_treasury/\{coin\_id\}} \\
+\texttt{get-public-treasury} & \texttt{/public\_treasury/\{entity\_id\}} \\
+\texttt{get-public-treasury-holding-chart} & \texttt{\ldots/\{coin\_id\}/holding\_chart} \\
+\texttt{get-public-treasury-transaction-history} & \texttt{\ldots/transaction\_history} \\
+\texttt{get-nfts-list} & \texttt{/nfts/list} \\
+\texttt{get-nft} & \texttt{/nfts/\{id\}} \\
+\texttt{get-nft-by-contract} & \texttt{/nfts/\{platform\}/contract/\{address\}} \\
+\texttt{get-nfts-markets} & \texttt{/nfts/markets} \\
+\texttt{get-nft-market-chart} & \texttt{/nfts/\{id\}/market\_chart} \\
+\texttt{get-nft-market-chart-by-contract} & \texttt{\ldots/contract/\ldots/market\_chart} \\
+\texttt{get-nft-tickers} & \texttt{/nfts/\{id\}/tickers} \\
+\texttt{get-search} & \texttt{/search} \\
+\texttt{get-trending} & \texttt{/search/trending} \\
+\texttt{get-news} & \texttt{/news} \\
+\texttt{get-insights} & \texttt{/insights} \\
+\texttt{get-global} & \texttt{/global} \\
+\texttt{get-global-defi} & \texttt{/global/decentralized\_finance\_defi} \\
+\texttt{get-global-market-cap-chart} & \texttt{/global/market\_cap\_chart} \\
+\texttt{get-exchange-rates} & \texttt{/exchange\_rates} \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+See \texttt{coingecko.restclient} in the repository root for
+\texttt{curl}-style examples of the same paths.
+
+\section{Onchain}
+
+These functions are defined in \texttt{source/onchain.lisp} but exported
+from \texttt{coingecko/rest-api}.  They talk to the same v3 host when you
+have a key.  Path parameters that are addresses may be a string or a
+list (joined with commas).
+
+\small
+\begin{longtable}{p{0.48\textwidth}p{0.46\textwidth}}
+\toprule
+Function & Path \\
+\midrule
+\endhead
+\texttt{get-onchain-token-price} & \texttt{/onchain/simple/networks/\ldots/token\_price/\ldots} \\
+\texttt{get-onchain-pool} & \texttt{/onchain/networks/\{network\}/pools/\{address\}} \\
+\texttt{get-onchain-pools} & \texttt{\ldots/pools/multi/\{addresses\}} \\
+\texttt{get-onchain-pool-info} & \texttt{\ldots/pools/\{pool\_address\}/info} \\
+\texttt{get-onchain-top-pools} & \texttt{/onchain/networks/\{network\}/pools} \\
+\texttt{get-onchain-top-pools-by-dex} & \texttt{\ldots/dexes/\{dex\}/pools} \\
+\texttt{get-onchain-top-pools-by-token} & \texttt{\ldots/tokens/\{token\}/pools} \\
+\texttt{get-onchain-pools-megafilter} & \texttt{/onchain/pools/megafilter} \\
+\texttt{get-onchain-new-pools} & \texttt{/onchain/networks/new\_pools} \\
+\texttt{get-onchain-new-pools-by-network} & \texttt{\ldots/\{network\}/new\_pools} \\
+\texttt{get-onchain-trending-pools} & \texttt{/onchain/networks/trending\_pools} \\
+\texttt{get-onchain-trending-pools-by-network} & \texttt{\ldots/\{network\}/trending\_pools} \\
+\texttt{get-onchain-trending-search-pools} & \texttt{/onchain/pools/trending\_search} \\
+\texttt{get-onchain-token} & \texttt{/onchain/networks/\{network\}/tokens/\{address\}} \\
+\texttt{get-onchain-tokens} & \texttt{\ldots/tokens/multi/\{addresses\}} \\
+\texttt{get-onchain-token-info} & \texttt{\ldots/tokens/\{address\}/info} \\
+\texttt{get-onchain-tokens-recently-updated} & \texttt{/onchain/tokens/info\_recently\_updated} \\
+\texttt{get-onchain-pool-ohlcv} & \texttt{\ldots/pools/\ldots/ohlcv/\{timeframe\}} \\
+\texttt{get-onchain-token-ohlcv} & \texttt{\ldots/tokens/\ldots/ohlcv/\{timeframe\}} \\
+\texttt{get-onchain-pool-trades} & \texttt{\ldots/pools/\ldots/trades} \\
+\texttt{get-onchain-token-trades} & \texttt{\ldots/tokens/\ldots/trades} \\
+\texttt{get-onchain-top-traders} & \texttt{\ldots/tokens/\ldots/top\_traders} \\
+\texttt{get-onchain-top-holders} & \texttt{\ldots/tokens/\ldots/top\_holders} \\
+\texttt{get-onchain-holders-chart} & \texttt{\ldots/tokens/\ldots/holders\_chart} \\
+\texttt{get-onchain-categories} & \texttt{/onchain/categories} \\
+\texttt{get-onchain-category-pools} & \texttt{/onchain/categories/\{id\}/pools} \\
+\texttt{get-onchain-networks} & \texttt{/onchain/networks} \\
+\texttt{get-onchain-dexes} & \texttt{/onchain/networks/\{network\}/dexes} \\
+\texttt{get-onchain-search-pools} & \texttt{/onchain/search/pools} \\
+\bottomrule
+\end{longtable}
+\normalsize

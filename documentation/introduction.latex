@@ -1,0 +1,150 @@
+%%%% Copyright (C) 2023 -- 2026, Christopher Mark Gore,
+%%%% Soli Deo Gloria,
+%%%% All rights reserved.
+%%%%
+%%%% 22 Forest Glade Court, Saint Charles, Missouri 63304 USA.
+%%%% Web: http://cgore.com
+%%%% Email: cgore@cgore.com
+%%%%
+%%%% Redistribution and use in source and binary forms, with or without
+%%%% modification, are permitted provided that the following conditions are met:
+%%%%
+%%%%     * Redistributions of source code must retain the above copyright
+%%%%       notice, this list of conditions and the following disclaimer.
+%%%%
+%%%%     * Redistributions in binary form must reproduce the above copyright
+%%%%       notice, this list of conditions and the following disclaimer in the
+%%%%       documentation and/or other materials provided with the distribution.
+%%%%
+%%%%     * Neither the name of Christopher Mark Gore nor the names of other
+%%%%       contributors may be used to endorse or promote products derived from
+%%%%       this software without specific prior written permission.
+%%%%
+%%%% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+%%%% AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+%%%% IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+%%%% ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+%%%% LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+%%%% CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+%%%% SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+%%%% INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+%%%% CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+%%%% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+%%%% POSSIBILITY OF SUCH DAMAGE.
+
+\chapter{Introduction}
+
+The \texttt{cl-coingecko} library is a Common Lisp client for the CoinGecko
+\textsc{Api}~\cite{coingecko-docs}.  It is \emph{not} an official CoinGecko
+product; it is an independent wrapper around their public \textsc{Rest}
+surface.
+
+The thin layer lives in the \texttt{coingecko/rest-api} package: one function
+per documented \texttt{GET} path, plus shared authentication, query encoding,
+and a sixty-second \texttt{function-cache}.  The \texttt{coingecko} package
+re-exports that layer and adds the helpers I actually call from
+\url{https://limbic.fi} --- current quotes and price histories for Bitcoin
+and friends, including gold (\texttt{xau}) and silver (\texttt{xag}).
+
+The library covers the v3 \textsc{Rest} endpoints from CoinGecko's Open\textsc{Api}
+specification~\cite{coingecko-openapi}: simple prices, coin metadata,
+historical charts and \textsc{Ohlc}, exchanges, derivatives, treasuries,
+\textsc{Nft}s, search, global stats, and the onchain / GeckoTerminal paths.
+WebSockets and webhooks are not wrapped.
+
+You can download the library from GitHub at:\\
+\url{https://github.com/cgore/cl-coingecko}
+
+\section*{Getting Lisp}
+
+Before using this library you need a working Lisp.  I use and recommend
+\textsc{Sbcl}, Steel Bank Common Lisp, which is available at:\\
+\url{http://www.sbcl.org}
+
+\textsc{SBCL} has information on getting started at:\\
+\url{http://www.sbcl.org/getting.html}\\
+If you are using Debian or a similar Linux distribution (including Ubuntu), you
+can just run as root:\\
+\texttt{apt-get install sbcl sbcl-doc sbcl-source}
+
+\section*{Getting \textsc{Emacs} and \textsc{Slime}}
+
+After installing, the best way to interact with any Common Lisp is via
+\textsc{Slime}, the Superior Lisp Interaction Mode for \textsc{Emacs}, which is
+available at:\\
+\url{http://common-lisp.net/project/slime/}\\
+This can be installed on Debian by:\\
+\texttt{apt-get install slime emacs emacs-goodies-el}
+
+\section*{Using the Library}
+
+Clone the repository next to your other local systems, or symlink the
+\textsc{Asdf} file into a directory on \texttt{asdf:*central-registry*}
+(I use \texttt{\textasciitilde/programming/lisp/systems/}).
+
+\begin{lstlisting}
+mkdir -p ~/programming/lisp
+cd ~/programming/lisp
+git clone git@github.com:cgore/cl-coingecko.git
+ln -s ~/programming/lisp/cl-coingecko/coingecko.asd \
+      ~/programming/lisp/systems/
+\end{lstlisting}
+
+The system depends on \texttt{alexandria}, \texttt{dexador},
+\texttt{function-cache}, \texttt{quri}, \texttt{sigma}, and \texttt{yason}.
+Those come from Quicklisp.
+
+\begin{lstlisting}
+(ql:quickload :coingecko)
+(in-package :coingecko)
+(price-history :bitcoin :vs-currency :usd :days 365)
+(btc/usd)
+\end{lstlisting}
+
+\section*{Authentication}
+
+CoinGecko currently has three \textsc{Rest} plans.  The library picks one at
+load time from the process environment, or you can switch in the image.
+
+\begin{tabular}{llp{0.38\textwidth}}
+\toprule
+Plan & Host & Header \\
+\midrule
+Keyless & public v3 & none \\
+Demo & public v3 & \texttt{x-cg-demo-api-key} \\
+Pro & Pro v3 & \texttt{x-cg-pro-api-key} \\
+\bottomrule
+\end{tabular}
+
+The public host is \texttt{https://api.coingecko.com/api/v3}.
+The Pro host is \texttt{https://pro-api.coingecko.com/api/v3}.
+
+On load it reads, in order, \texttt{COINGECKO\_PRO\_API\_KEY},
+\texttt{COINGECKO\_DEMO\_API\_KEY}, then \texttt{COINGECKO\_API\_KEY}.  You
+can also call \texttt{use-demo}, \texttt{use-pro}, or \texttt{use-keyless}.
+
+Keyless is fine for trying things.  It is rate-limited (roughly 10--30
+calls per minute, shared by \textsc{Ip}) and is not suitable for production
+polling.  Get a Demo or Pro key from the CoinGecko developer dashboard.
+
+Some endpoints --- \textsc{Ohlc} range, new listings, news, most onchain
+filters, enterprise supply charts --- require a paid plan.  The wrappers
+are still there; CoinGecko will reject them if your key cannot call them.
+
+\section*{Testing}
+
+Specs are \texttt{sigma/behave} \texttt{behavior} / \texttt{should} forms,
+the same style as $\Sigma$.  Pure helpers run at load time.
+\texttt{asdf:test-system} reloads the sources so those assertions run
+again.
+
+\begin{lstlisting}
+(asdf:test-system :coingecko)
+\end{lstlisting}
+
+To also hit the live \textsc{Api} (ping, a Bitcoin price, and a one-day
+history), set \texttt{COINGECKO\_LIVE\_TESTS=1} in the environment first.
+A Demo key is enough; keyless works if you have not already exhausted the
+public rate limit.
+
+Have fun!

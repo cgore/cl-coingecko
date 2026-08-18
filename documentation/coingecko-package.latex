@@ -1,0 +1,289 @@
+%%%% Copyright (C) 2023 -- 2026, Christopher Mark Gore,
+%%%% Soli Deo Gloria,
+%%%% All rights reserved.
+%%%%
+%%%% 22 Forest Glade Court, Saint Charles, Missouri 63304 USA.
+%%%% Web: http://cgore.com
+%%%% Email: cgore@cgore.com
+%%%%
+%%%% Redistribution and use in source and binary forms, with or without
+%%%% modification, are permitted provided that the following conditions are met:
+%%%%
+%%%%     * Redistributions of source code must retain the above copyright
+%%%%       notice, this list of conditions and the following disclaimer.
+%%%%
+%%%%     * Redistributions in binary form must reproduce the above copyright
+%%%%       notice, this list of conditions and the following disclaimer in the
+%%%%       documentation and/or other materials provided with the distribution.
+%%%%
+%%%%     * Neither the name of Christopher Mark Gore nor the names of other
+%%%%       contributors may be used to endorse or promote products derived from
+%%%%       this software without specific prior written permission.
+%%%%
+%%%% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+%%%% AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+%%%% IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+%%%% ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+%%%% LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+%%%% CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+%%%% SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+%%%% INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+%%%% CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+%%%% ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+%%%% POSSIBILITY OF SUCH DAMAGE.
+
+\lispPackageChapter{coingecko}
+
+The \texttt{coingecko} package is the one you \texttt{use} from application
+code.  It re-exports every external symbol of
+\texttt{coingecko/rest-api} and adds the helpers I call from Limbic:
+current quotes, price histories as Common Lisp universal times, and the
+old Zapper-era names such as \texttt{btc/usd} and \texttt{xag/usd}.
+
+\section{Time}
+
+CoinGecko chart points are UNIX milliseconds.  Common Lisp wants
+universal time.  These four functions sit between the two.
+
+\lispParameterSubsection{unix-epoch}
+
+Universal time of the UNIX epoch, 1970-01-01T00:00:00Z.
+
+\lispFunctionSubsection{unix->universal}
+
+Convert a UNIX timestamp in seconds or milliseconds to universal time.
+Values above $10^{11}$ are treated as milliseconds, which is what
+CoinGecko chart points use.
+
+\lispSyntax
+
+\texttt{(unix->universal \lispVar{unix})}
+
+\lispExamples
+
+\begin{lstlisting}
+(unix->universal 0)              ; => unix-epoch
+(unix->universal 1577836800)     ; => 2020-01-01T00:00:00Z
+(unix->universal 1577836800000)  ; => same instant, from milliseconds
+\end{lstlisting}
+
+\lispFunctionSubsection{universal->unix}
+
+Convert a Common Lisp universal time to UNIX seconds.
+
+\lispFunctionSubsection{canonicalize-date}
+
+CoinGecko \texttt{/history} dates are \texttt{YYYY-MM-DD}.  This accepts
+a string (passed through), a universal time, or a
+\texttt{(year month day)} list.
+
+\lispSyntax
+
+\texttt{(canonicalize-date \lispVar{date})}
+
+\lispExamples
+
+\begin{lstlisting}
+(canonicalize-date "2024-01-15")   ; => "2024-01-15"
+(canonicalize-date '(2024 7 4))    ; => "2024-07-04"
+\end{lstlisting}
+
+\lispFunctionSubsection{canonicalize-unix}
+
+Turn a value into a UNIX-seconds string for range endpoints.  Integers
+greater than $10^{11}$ are treated as milliseconds; integers greater
+than $3 \cdot 10^{9}$ are treated as universal times; everything else is
+passed through as UNIX seconds.
+
+\section{Current Quotes}
+
+\lispFunctionSubsection{quotes}
+
+One cached \texttt{/simple/price} call covering the usual Limbic quote
+set: Bitcoin and Ether versus \texttt{usd}, \texttt{xag}, and
+\texttt{xau}.
+
+\lispSyntax
+
+\texttt{(quotes \&key (\lispVar{ids} '(:bitcoin :ethereum))
+  (\lispVar{vs-currencies} '(:usd :xag :xau)))}
+
+\lispFunctionSubsection{price}
+
+Current price of a coin in a vs-currency.  The id may be \texttt{:btc}
+or \texttt{"bitcoin"}.
+
+\lispSyntax
+
+\texttt{(price \lispVar{id} \&optional (\lispVar{vs-currency} :usd))}
+
+\lispExamples
+
+\begin{lstlisting}
+(price :bitcoin :usd)
+(price :eth :usd)
+\end{lstlisting}
+
+\lispFunctionSubsection{btc/usd}
+
+The value of Bitcoin in US Dollars.
+
+\lispFunctionSubsection{eth/usd}
+
+The value of Ether in US Dollars.
+
+\lispFunctionSubsection{btc/xag}
+
+The value of Bitcoin in troy ounces of silver.
+
+\lispFunctionSubsection{btc/xau}
+
+The value of Bitcoin in troy ounces of gold.
+
+\lispFunctionSubsection{eth/xag}
+
+The value of Ether in troy ounces of silver.
+
+\lispFunctionSubsection{eth/xau}
+
+The value of Ether in troy ounces of gold.
+
+\lispFunctionSubsection{xag/usd}
+
+The value of one troy ounce of silver in US Dollars, derived as
+\texttt{(btc/usd) / (btc/xag)}.
+
+\lispFunctionSubsection{xau/usd}
+
+The value of one troy ounce of gold in US Dollars, derived as
+\texttt{(btc/usd) / (btc/xau)}.
+
+\lispFunctionSubsection{/btc}
+
+The value of \lispVar{id} expressed in Bitcoin, via US Dollars.
+
+\lispSyntax
+
+\texttt{(/btc \lispVar{id})}
+
+\lispFunctionSubsection{/eth}
+
+The value of \lispVar{id} expressed in Ether.
+
+\lispFunctionSubsection{/xag}
+
+The value of \lispVar{id} expressed in troy ounces of silver.
+
+\lispFunctionSubsection{/xau}
+
+The value of \lispVar{id} expressed in troy ounces of gold.
+
+\lispFunctionSubsection{btc/eth}
+
+The value of Bitcoin expressed in Ether.
+
+\lispFunctionSubsection{eth/btc}
+
+The value of Ether expressed in Bitcoin.
+
+\lispFunctionSubsection{fiat-rate}
+
+USD-per-unit for a vs-currency (\texttt{:usd}, \texttt{:xag},
+\texttt{:xau}) or a coin (\texttt{:btc}, \texttt{:eth}).  The name is
+the Zapper-era one, so Limbic call sites can switch over without
+renaming.
+
+\lispSyntax
+
+\texttt{(fiat-rate \lispVar{symbol})}
+
+\lispFunctionSubsection{1/fiat-rate}
+
+Units per US Dollar, the inverse of \texttt{fiat-rate}.
+
+\section{Price Histories}
+
+This is the main Limbic entry point: Bitcoin (and other) histories as
+lists of Common Lisp times and prices, rather than raw CoinGecko
+payloads.
+
+\lispFunctionSubsection{market-chart}
+
+Raw \texttt{/coins/\{id\}/market\_chart} payload: a hash table with
+\texttt{"prices"}, \texttt{"market\_caps"}, and
+\texttt{"total\_volumes"}.
+
+\lispSyntax
+
+\texttt{(market-chart \lispVar{id} \&key (\lispVar{vs-currency} :usd)
+  (\lispVar{days} 30) \lispVar{interval} \lispVar{precision})}
+
+\lispFunctionSubsection{market-chart-range}
+
+Raw \texttt{/coins/\{id\}/market\_chart/range} payload.
+\lispVar{from} and \lispVar{to} may be universal times, UNIX seconds,
+or UNIX milliseconds.
+
+\lispFunctionSubsection{ohlc}
+
+Raw \texttt{/coins/\{id\}/ohlc} payload: a vector of
+\texttt{[timestamp, open, high, low, close]}.
+
+\lispFunctionSubsection{ohlc-range}
+
+Raw \texttt{/coins/\{id\}/ohlc/range} payload.  Analyst plan and above.
+
+\lispFunctionSubsection{history}
+
+Snapshot of a coin at 00:00 \textsc{Utc} on \lispVar{date}.  The date
+may be \texttt{YYYY-MM-DD}, a universal time, or
+\texttt{(year month day)}.
+
+\lispSyntax
+
+\texttt{(history \lispVar{id} \lispVar{date} \&key \lispVar{localization})}
+
+\lispExamples
+
+\begin{lstlisting}
+(history :bitcoin "2024-01-15")
+(history :bitcoin '(2024 1 15))
+\end{lstlisting}
+
+\lispFunctionSubsection{price-history}
+
+A list of \texttt{(universal-time price)} points for \lispVar{id}.
+This is the function I reach for when I want Bitcoin's history.
+
+\lispSyntax
+
+\texttt{(price-history \lispVar{id} \&key (\lispVar{vs-currency} :usd)
+  (\lispVar{days} 30) \lispVar{interval})}
+
+\lispExamples
+
+\begin{lstlisting}
+(price-history :bitcoin :vs-currency :usd :days 365)
+(price-history :btc :days 90 :interval :daily)
+\end{lstlisting}
+
+\lispReturns
+
+A list of two-element lists.  The first element is a universal time;
+the second is the price in \lispVar{vs-currency}.
+
+\lispFunctionSubsection{ohlc-history}
+
+A list of \texttt{(universal-time open high low close)} candles for
+\lispVar{id}.
+
+\lispSyntax
+
+\texttt{(ohlc-history \lispVar{id} \&key (\lispVar{vs-currency} :usd)
+  (\lispVar{days} 30) \lispVar{interval})}
+
+\lispExamples
+
+\begin{lstlisting}
+(ohlc-history :bitcoin :days 30)
+\end{lstlisting}
